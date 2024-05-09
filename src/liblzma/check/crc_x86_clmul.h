@@ -160,24 +160,21 @@ crc32_clmul(const uint8_t *buf, size_t size, uint32_t crc)
 static uint32_t
 crc32_arch_optimized(const uint8_t *buf, size_t size, uint32_t crc)
 {
-	crc = ~crc;
-
-	if (size >= 16 + ((0U - (uintptr_t)buf) & 15)) {
-		while ((uintptr_t)buf & 15) {
-			crc = lzma_crc32_table[0][*buf++ ^ A(crc)] ^ S8(crc);
-			--size;
+	if (size >= 32) {
+		const size_t align16 = (0U - (uintptr_t)buf) & 15;
+		if (align16 > 0) {
+			crc = crc32_generic(buf, align16, crc);
+			buf += align16;
+			size -= align16;
 		}
 
 		const size_t size16 = size & ~(size_t)15;
-		crc = crc32_clmul(buf, size16, crc);
+		crc = ~crc32_clmul(buf, size16, ~crc);
 		buf += size16;
 		size &= 15;
 	}
 
-	while (size-- != 0)
-		crc = lzma_crc32_table[0][*buf++ ^ A(crc)] ^ S8(crc);
-
-	return ~crc;
+	return crc32_generic(buf, size, crc);
 }
 
 #endif // BUILDING_CRC32_CLMUL
@@ -274,28 +271,24 @@ crc64_clmul(const uint8_t *buf, size_t size, uint64_t crc)
 #	pragma optimize("", on)
 #endif
 
-
 static uint64_t
 crc64_arch_optimized(const uint8_t *buf, size_t size, uint64_t crc)
 {
-	crc = ~crc;
-
-	if (size >= 16 + ((0U - (uintptr_t)buf) & 15)) {
-		while ((uintptr_t)buf & 15) {
-			crc = lzma_crc64_table[0][*buf++ ^ A(crc)] ^ S8(crc);
-			--size;
+	if (size >= 32) {
+		const size_t align16 = (0U - (uintptr_t)buf) & 15;
+		if (align16 > 0) {
+			crc = crc64_generic(buf, align16, crc);
+			buf += align16;
+			size -= align16;
 		}
 
 		const size_t size16 = size & ~(size_t)15;
-		crc = crc64_clmul(buf, size16, crc);
+		crc = ~crc64_clmul(buf, size16, ~crc);
 		buf += size16;
 		size &= 15;
 	}
 
-	while (size-- != 0)
-		crc = lzma_crc64_table[0][*buf++ ^ A(crc)] ^ S8(crc);
-
-	return ~crc;
+	return crc64_generic(buf, size, crc);
 }
 
 #endif // BUILDING_CRC64_CLMUL
