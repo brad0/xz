@@ -240,12 +240,8 @@ calc_hi(uint64_t p, uint64_t a, int n)
 
 crc_attr_target
 static uint32_t
-crc32_arch_optimized(const uint8_t *buf, size_t size, uint32_t crc)
+crc32_clmul(const uint8_t *buf, size_t size, uint32_t crc)
 {
-	// The code assumes that there is at least one byte of input.
-	if (size == 0)
-		return crc;
-
 	// uint32_t poly = 0xedb88320;
 	const int64_t p = 0x1db710640; // p << 1
 	const int64_t mu = 0x1f7011641; // calc_lo(p, p, 32) << 1 | 1
@@ -260,7 +256,7 @@ crc32_arch_optimized(const uint8_t *buf, size_t size, uint32_t crc)
 	__m128i v0, v1, v2;
 
 	crc_simd_body(buf, size, &v0, &v1, vfold16,
-			_mm_cvtsi32_si128((int32_t)~crc));
+			_mm_cvtsi32_si128((int32_t)crc));
 
 	v1 = _mm_xor_si128(
 			_mm_clmulepi64_si128(v0, vfold16, 0x10), v1); // xxx0
@@ -271,8 +267,33 @@ crc32_arch_optimized(const uint8_t *buf, size_t size, uint32_t crc)
 	v2 = _mm_clmulepi64_si128(v0, vfold4, 0x10);
 	v2 = _mm_clmulepi64_si128(v2, vfold4, 0x00);
 	v0 = _mm_xor_si128(v0, v2);   // [2]
-	return ~(uint32_t)_mm_extract_epi32(v0, 2);
+	return (uint32_t)_mm_extract_epi32(v0, 2);
 }
+
+
+static uint32_t
+crc32_arch_optimized(const uint8_t *buf, size_t size, uint32_t crc)
+{
+	crc = ~crc;
+
+	if (size >= 16 + ((0U - (uintptr_t)buf) & 15)) {
+		while ((uintptr_t)buf & 15) {
+			crc = lzma_crc32_table[0][*buf++ ^ A(crc)] ^ S8(crc);
+			--size;
+		}
+
+		const size_t size16 = size & ~(size_t)15;
+		crc = crc32_clmul(buf, size16, crc);
+		buf += size16;
+		size &= 15;
+	}
+
+	while (size-- != 0)
+		crc = lzma_crc32_table[0][*buf++ ^ A(crc)] ^ S8(crc);
+
+	return ~crc;
+}
+
 #endif // BUILDING_CRC32_CLMUL
 
 
@@ -317,9 +338,8 @@ calc_hi(uint64_t poly, uint64_t a)
 // and CRC32 CLMUL aren't affected by this problem. The problem does not
 // happen in crc_simd_body() either (which is shared with CRC32 CLMUL anyway).
 //
-// NOTE: Another pragma after crc64_arch_optimized() restores
-// the optimizations. If the #if condition here is updated,
-// the other one must be updated too.
+// NOTE: Another pragma after crc64_clmul() restores the optimizations.
+// If the #if condition here is updated, the other one must be updated too.
 #if defined(_MSC_VER) && !defined(__INTEL_COMPILER) && !defined(__clang__) \
 		&& defined(_M_IX86)
 #	pragma optimize("g", off)
@@ -327,12 +347,8 @@ calc_hi(uint64_t poly, uint64_t a)
 
 crc_attr_target
 static uint64_t
-crc64_arch_optimized(const uint8_t *buf, size_t size, uint64_t crc)
+crc64_clmul(const uint8_t *buf, size_t size, uint64_t crc)
 {
-	// The code assumes that there is at least one byte of input.
-	if (size == 0)
-		return crc;
-
 	// const uint64_t poly = 0xc96c5795d7870f42; // CRC polynomial
 	const uint64_t p  = 0x92d8af2baf0e1e85; // (poly << 1) | 1
 	const uint64_t mu = 0x9c3e466c172963d5; // (calc_lo(poly) << 1) | 1
@@ -346,12 +362,12 @@ crc64_arch_optimized(const uint8_t *buf, size_t size, uint64_t crc)
 
 #if defined(__i386__) || defined(_M_IX86)
 	crc_simd_body(buf, size, &v0, &v1, vfold16,
-			_mm_set_epi64x(0, (int64_t)~crc));
+			_mm_set_epi64x(0, (int64_t)crc));
 #else
 	// GCC and Clang would produce good code with _mm_set_epi64x
 	// but MSVC needs _mm_cvtsi64_si128 on x86-64.
 	crc_simd_body(buf, size, &v0, &v1, vfold16,
-			_mm_cvtsi64_si128((int64_t)~crc));
+			_mm_cvtsi64_si128((int64_t)crc));
 #endif
 
 	v1 = _mm_xor_si128(_mm_clmulepi64_si128(v0, vfold16, 0x10), v1);
@@ -360,10 +376,10 @@ crc64_arch_optimized(const uint8_t *buf, size_t size, uint64_t crc)
 	v0 = _mm_xor_si128(_mm_xor_si128(v1, _mm_slli_si128(v0, 8)), v2);
 
 #if defined(__i386__) || defined(_M_IX86)
-	return ~(((uint64_t)(uint32_t)_mm_extract_epi32(v0, 3) << 32) |
-			(uint64_t)(uint32_t)_mm_extract_epi32(v0, 2));
+	return ((uint64_t)(uint32_t)_mm_extract_epi32(v0, 3) << 32)
+			| (uint32_t)_mm_extract_epi32(v0, 2);
 #else
-	return ~(uint64_t)_mm_extract_epi64(v0, 1);
+	return (uint64_t)_mm_extract_epi64(v0, 1);
 #endif
 }
 
@@ -371,6 +387,30 @@ crc64_arch_optimized(const uint8_t *buf, size_t size, uint64_t crc)
 		&& defined(_M_IX86)
 #	pragma optimize("", on)
 #endif
+
+
+static uint64_t
+crc64_arch_optimized(const uint8_t *buf, size_t size, uint64_t crc)
+{
+	crc = ~crc;
+
+	if (size >= 16 + ((0U - (uintptr_t)buf) & 15)) {
+		while ((uintptr_t)buf & 15) {
+			crc = lzma_crc64_table[0][*buf++ ^ A(crc)] ^ S8(crc);
+			--size;
+		}
+
+		const size_t size16 = size & ~(size_t)15;
+		crc = crc64_clmul(buf, size16, crc);
+		buf += size16;
+		size &= 15;
+	}
+
+	while (size-- != 0)
+		crc = lzma_crc64_table[0][*buf++ ^ A(crc)] ^ S8(crc);
+
+	return ~crc;
+}
 
 #endif // BUILDING_CRC64_CLMUL
 
