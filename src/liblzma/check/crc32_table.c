@@ -11,7 +11,7 @@
 
 #include "crc_common.h"
 
-#if !defined(HAVE_ENCODERS) && defined(NO_CRC32_TABLE)
+#ifdef NO_CRC32_TABLE
 // No table needed. Use a typedef to avoid an empty translation unit.
 typedef void lzma_crc32_dummy;
 

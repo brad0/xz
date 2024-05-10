@@ -12,15 +12,25 @@
 #ifndef LZMA_LZ_ENCODER_HASH_H
 #define LZMA_LZ_ENCODER_HASH_H
 
-#if defined(WORDS_BIGENDIAN) && !defined(HAVE_SMALL)
+#include "check.h"
+
+// crc_common.h is only for builds without HAVE_SMALL. Here it matters because
+// it could define NO_CRC32_TABLE even when crc32_small.c will have a table.
+#ifndef HAVE_SMALL
+#	include "crc_common.h"
+#endif
+
+#if (defined(WORDS_BIGENDIAN) && !defined(HAVE_SMALL)) \
+		|| defined(NO_CRC32_TABLE)
 	// This is to make liblzma produce the same output on big endian
 	// systems that it does on little endian systems. lz_encoder.c
 	// takes care of including the actual table.
 	lzma_attr_visibility_hidden
 	extern const uint32_t lzma_lz_hash_table[256];
+
+#	define LZMA_LZ_HASH_TABLE_NEEDED
 #	define hash_table lzma_lz_hash_table
 #else
-#	include "check.h"
 #	define hash_table lzma_crc32_table[0]
 #endif
 
