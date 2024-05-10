@@ -59,129 +59,21 @@
 #endif
 
 
-#define MASK_L(in, mask, r) r = _mm_shuffle_epi8(in, mask)
-
-#define MASK_H(in, mask, r) \
-	r = _mm_shuffle_epi8(in, _mm_xor_si128(mask, vsign))
-
-#define MASK_LH(in, mask, low, high) \
-	MASK_L(in, mask, low); \
-	MASK_H(in, mask, high)
-
-
 crc_attr_target
 static lzma_always_inline void
 crc_simd_body(const uint8_t *buf, const size_t size, __m128i *v0, __m128i *v1,
 		const __m128i vfold16, const __m128i initial_crc)
 {
-	// Create a vector with 8-bit values 0 to 15. This is used to
-	// construct control masks for _mm_blendv_epi8 and _mm_shuffle_epi8.
-	const __m128i vramp = _mm_setr_epi32(
-			0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c);
+	assert(((uintptr_t)buf & 15) == 0);
+	assert((size & 15) == 0);
 
-	// This is used to inverse the control mask of _mm_shuffle_epi8
-	// so that bytes that wouldn't be picked with the original mask
-	// will be picked and vice versa.
-	const __m128i vsign = _mm_set1_epi8(-0x80);
+	const __m128i *aligned_buf = (const __m128i *)buf;
+	const __m128i *end = (const __m128i*)(buf + size);
 
-	// Memory addresses A to D and the distances between them:
-	//
-	//     A           B     C         D
-	//     [skip_start][size][skip_end]
-	//     [     size2      ]
-	//
-	// A and D are 16-byte aligned. B and C are 1-byte aligned.
-	// skip_start and skip_end are 0-15 bytes. size is at least 1 byte.
-	//
-	// A = aligned_buf will initially point to this address.
-	// B = The address pointed by the caller-supplied buf.
-	// C = buf + size == aligned_buf + size2
-	// D = buf + size + skip_end == aligned_buf + size2 + skip_end
-	const size_t skip_start = (size_t)((uintptr_t)buf & 15);
-	const size_t skip_end = (size_t)((0U - (uintptr_t)(buf + size)) & 15);
-	const __m128i *aligned_buf = (const __m128i *)(
-			(uintptr_t)buf & ~(uintptr_t)15);
+	*v0 = _mm_xor_si128(initial_crc, _mm_load_si128(aligned_buf++));
 
-	// If size2 <= 16 then the whole input fits into a single 16-byte
-	// vector. If size2 > 16 then at least two 16-byte vectors must
-	// be processed. If size2 > 16 && size <= 16 then there is only
-	// one 16-byte vector's worth of input but it is unaligned in memory.
-	//
-	// NOTE: There is no integer overflow here if the arguments
-	// are valid. If this overflowed, buf + size would too.
-	const size_t size2 = skip_start + size;
-
-	// Masks to be used with _mm_blendv_epi8 and _mm_shuffle_epi8:
-	// The first skip_start or skip_end bytes in the vectors will have
-	// the high bit (0x80) set. _mm_blendv_epi8 and _mm_shuffle_epi8
-	// will produce zeros for these positions. (Bitwise-xor of these
-	// masks with vsign will produce the opposite behavior.)
-	const __m128i mask_start
-			= _mm_sub_epi8(vramp, _mm_set1_epi8((char)skip_start));
-	const __m128i mask_end
-			= _mm_sub_epi8(vramp, _mm_set1_epi8((char)skip_end));
-
-	// Get the first 1-16 bytes into data0. If loading less than 16
-	// bytes, the bytes are loaded to the high bits of the vector and
-	// the least significant positions are filled with zeros.
-	const __m128i data0 = _mm_blendv_epi8(_mm_load_si128(aligned_buf),
-			_mm_setzero_si128(), mask_start);
-	aligned_buf++;
-
-	__m128i v2, v3;
-
-	if (size <= 16) {
-		// Right-shift initial_crc by 1-16 bytes based on "size"
-		// and store the result in v1 (high bytes) and v0 (low bytes).
-		//
-		// NOTE: The highest 8 bytes of initial_crc are zeros so
-		// v1 will be filled with zeros if size >= 8. The highest
-		// 8 bytes of v1 will always become zeros.
-		//
-		// [      v1      ][      v0      ]
-		//  [ initial_crc  ]                  size == 1
-		//   [ initial_crc  ]                 size == 2
-		//                [ initial_crc  ]    size == 15
-		//                 [ initial_crc  ]   size == 16 (all in v0)
-		const __m128i mask_low = _mm_add_epi8(
-				vramp, _mm_set1_epi8((char)(size - 16)));
-		MASK_LH(initial_crc, mask_low, *v0, *v1);
-
-		if (size2 <= 16) {
-			// There are 1-16 bytes of input and it is all
-			// in data0. Copy the input bytes to v3. If there
-			// are fewer than 16 bytes, the low bytes in v3
-			// will be filled with zeros. That is, the input
-			// bytes are stored to the same position as
-			// (part of) initial_crc is in v0.
-			MASK_L(data0, mask_end, v3);
-		} else {
-			// There are 2-16 bytes of input but not all bytes
-			// are in data0.
-			const __m128i data1 = _mm_load_si128(aligned_buf);
-
-			// Collect the 2-16 input bytes from data0 and data1
-			// to v2 and v3, and bitwise-xor them with the
-			// low bits of initial_crc in v0. Note that the
-			// the second xor is below this else-block as it
-			// is shared with the other branch.
-			MASK_H(data0, mask_end, v2);
-			MASK_L(data1, mask_end, v3);
-			*v0 = _mm_xor_si128(*v0, v2);
-		}
-
-		*v0 = _mm_xor_si128(*v0, v3);
-		*v1 = _mm_alignr_epi8(*v1, *v0, 8);
-	} else {
-		// There is more than 16 bytes of input.
-		const __m128i data1 = _mm_load_si128(aligned_buf);
-		const __m128i *end = (const __m128i*)(
-				(const char *)aligned_buf - 16 + size2);
-		aligned_buf++;
-
-		MASK_LH(initial_crc, mask_start, *v0, *v1);
-		*v0 = _mm_xor_si128(*v0, data0);
-		*v1 = _mm_xor_si128(*v1, data1);
+	if (aligned_buf < end) {
+		*v1 = _mm_load_si128(aligned_buf++);
 
 		while (aligned_buf < end) {
 			*v1 = _mm_xor_si128(*v1, _mm_clmulepi64_si128(
@@ -191,19 +83,13 @@ crc_simd_body(const uint8_t *buf, const size_t size, __m128i *v0, __m128i *v1,
 			*v1 = _mm_load_si128(aligned_buf++);
 		}
 
-		if (aligned_buf != end) {
-			MASK_H(*v0, mask_end, v2);
-			MASK_L(*v0, mask_end, *v0);
-			MASK_L(*v1, mask_end, v3);
-			*v1 = _mm_or_si128(v2, v3);
-		}
-
 		*v1 = _mm_xor_si128(*v1, _mm_clmulepi64_si128(
 				*v0, vfold16, 0x00));
 		*v0 = _mm_xor_si128(*v1, _mm_clmulepi64_si128(
 				*v0, vfold16, 0x11));
-		*v1 = _mm_srli_si128(*v0, 8);
 	}
+
+	*v1 = _mm_srli_si128(*v0, 8);
 }
 
 
