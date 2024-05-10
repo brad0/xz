@@ -84,7 +84,7 @@ crc64_generic(const uint8_t *buf, size_t size, uint64_t crc)
 #endif
 
 
-#if defined(CRC64_GENERIC) && defined(CRC64_ARCH_OPTIMIZED)
+#ifdef CRC64_RUNTIME_DETECTION
 
 //////////////////////////
 // Function dispatching //
@@ -136,7 +136,7 @@ crc64_dispatch(const uint8_t *buf, size_t size, uint64_t crc)
 extern LZMA_API(uint64_t)
 lzma_crc64(const uint8_t *buf, size_t size, uint64_t crc)
 {
-#if defined(CRC64_GENERIC) && defined(CRC64_ARCH_OPTIMIZED)
+#if defined(CRC64_RUNTIME_DETECTION)
 	return crc64_func(buf, size, crc);
 
 #elif defined(CRC64_ARCH_OPTIMIZED)

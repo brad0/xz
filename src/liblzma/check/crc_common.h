@@ -38,66 +38,75 @@
 #endif
 
 
-// Keep this in sync with changes to crc32_arm64.h
-#if defined(_WIN32) || defined(HAVE_GETAUXVAL) \
-		|| defined(HAVE_ELF_AUX_INFO) \
-		|| (defined(__APPLE__) && defined(HAVE_SYSCTLBYNAME))
-#	define ARM64_RUNTIME_DETECTION 1
-#endif
-
-
+// These get defined if the generic versions are needed.
 #undef CRC32_GENERIC
 #undef CRC64_GENERIC
 
+// These get defined if a CRC table for a generic method shouldn't be built.
+// Both CRCXX_GENERIC and NO_CRCXX_TABLE can be defined at the same time.
+#undef NO_CRC32_TABLE
+#undef NO_CRC64_TABLE
+
+// These get defined if an arch-optimized implementation exists.
 #undef CRC32_ARCH_OPTIMIZED
 #undef CRC64_ARCH_OPTIMIZED
 
 // The x86 CLMUL is used for both CRC32 and CRC64.
 #undef CRC_X86_CLMUL
 
+// ARM64 may have CRC32 instruction. CRC64 could be done with CLMUL.
 #undef CRC32_ARM64
 #undef CRC64_ARM64_CLMUL
+
+
+// x86 and E2K
+//
+// The CLMUL implementation depends on the generic implementation so
+// both have to be built. However, runtime detection can be skipped if
+// built with appropriate compiler options. On E2K runtime detection *must*
+// be skipped as it's not x86; the compiler just has compatible intrinsics.
+#ifdef HAVE_USABLE_CLMUL
+#	define CRC32_GENERIC 1
+#	define CRC64_GENERIC 1
+#	define CRC32_ARCH_OPTIMIZED 1
+#	define CRC64_ARCH_OPTIMIZED 1
+#	define CRC_X86_CLMUL 1
+#	if !((defined(__SSSE3__) && defined(__SSE4_1__) \
+				&& defined(__PCLMUL__)) \
+			|| (defined(__e2k__) && __iset__ >= 6))
+#		define CRC32_RUNTIME_DETECTION 1
+#		define CRC64_RUNTIME_DETECTION 1
+#	endif
+#endif
+
+
+// ARM64
+//
+// Keep this in sync with changes to crc32_arm64.h
+#if defined(_WIN32) || defined(HAVE_GETAUXVAL) \
+		|| defined(HAVE_ELF_AUX_INFO) \
+		|| (defined(__APPLE__) && defined(HAVE_SYSCTLBYNAME))
+#	define CRC32_RUNTIME_DETECTION 1
+#endif
 
 // ARM64 CRC32 instruction is only useful for CRC32. Currently, only
 // little endian is supported since we were unable to test on a big
 // endian machine.
-//
-// NOTE: Keep this and the next check in sync with the macro
-//       NO_CRC32_TABLE in crc32_table.c
 #if defined(HAVE_ARM64_CRC32) && !defined(WORDS_BIGENDIAN)
 	// Allow ARM64 CRC32 instruction without a runtime check if
 	// __ARM_FEATURE_CRC32 is defined. GCC and Clang only define
 	// this if the proper compiler options are used.
 #	if defined(__ARM_FEATURE_CRC32)
+#		define NO_CRC32_TABLE 1
 #		define CRC32_ARCH_OPTIMIZED 1
 #		define CRC32_ARM64 1
-#	elif defined(ARM64_RUNTIME_DETECTION)
-#		define CRC32_ARCH_OPTIMIZED 1
-#		define CRC32_ARM64 1
+#	elif defined(CRC32_RUNTIME_DETECTION)
 #		define CRC32_GENERIC 1
+#		define CRC32_ARCH_OPTIMIZED 1
+#		define CRC32_ARM64 1
 #	endif
 #endif
 
-#if defined(HAVE_USABLE_CLMUL)
-// If CLMUL is allowed unconditionally in the compiler options then the
-// generic version can be omitted. Note that this doesn't work with MSVC
-// as I don't know how to detect the features here.
-//
-// NOTE: Keep this in sync with the NO_CRC32_TABLE macro in crc32_table.c
-// and NO_CRC64_TABLE in crc64_table.c.
-#	if (defined(__SSSE3__) && defined(__SSE4_1__) && defined(__PCLMUL__)) \
-		|| (defined(__e2k__) && __iset__ >= 6)
-#		define CRC32_ARCH_OPTIMIZED 1
-#		define CRC64_ARCH_OPTIMIZED 1
-#		define CRC_X86_CLMUL 1
-#	else
-#		define CRC32_GENERIC 1
-#		define CRC64_GENERIC 1
-#		define CRC32_ARCH_OPTIMIZED 1
-#		define CRC64_ARCH_OPTIMIZED 1
-#		define CRC_X86_CLMUL 1
-#	endif
-#endif
 
 // For CRC32 use the generic slice-by-eight implementation if no optimized
 // version is available.

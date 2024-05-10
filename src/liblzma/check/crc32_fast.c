@@ -91,7 +91,7 @@ crc32_generic(const uint8_t *buf, size_t size, uint32_t crc)
 #endif
 
 
-#if defined(CRC32_GENERIC) && defined(CRC32_ARCH_OPTIMIZED)
+#ifdef CRC32_RUNTIME_DETECTION
 
 //////////////////////////
 // Function dispatching //
@@ -166,7 +166,7 @@ crc32_dispatch(const uint8_t *buf, size_t size, uint32_t crc)
 extern LZMA_API(uint32_t)
 lzma_crc32(const uint8_t *buf, size_t size, uint32_t crc)
 {
-#if defined(CRC32_GENERIC) && defined(CRC32_ARCH_OPTIMIZED)
+#if defined(CRC32_RUNTIME_DETECTION)
 /*
 #ifndef HAVE_FUNC_ATTRIBUTE_CONSTRUCTOR
 	// See crc32_dispatch(). This would be the alternative which uses

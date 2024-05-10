@@ -9,17 +9,7 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-#include "common.h"
-
-
-// FIXME: Compared to crc_common.h this has to check for __x86_64__ too
-// so that in 32-bit builds crc64_x86.S won't break due to a missing table.
-#if defined(HAVE_USABLE_CLMUL) && ((defined(__x86_64__) && defined(__SSSE3__) \
-			&& defined(__SSE4_1__) && defined(__PCLMUL__)) \
-		|| (defined(__e2k__) && __iset__ >= 6))
-#	define NO_CRC64_TABLE
-#endif
-
+#include "crc_common.h"
 
 #ifdef NO_CRC64_TABLE
 // No table needed. Use a typedef to avoid an empty translation unit.
