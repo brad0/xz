@@ -13,11 +13,6 @@
 #include "check.h"
 #include "crc_common.h"
 
-#if defined(CRC_X86_CLMUL)
-#	define BUILDING_CRC64_CLMUL
-#	include "crc_x86_clmul.h"
-#endif
-
 
 #ifdef CRC64_GENERIC
 
@@ -78,6 +73,14 @@ crc64_generic(const uint8_t *buf, size_t size, uint64_t crc)
 
 	return ~crc;
 }
+#endif
+
+
+// The arch-optimized method may require the generic method too.
+// Thus, include these after the generic implementation above.
+#if defined(CRC_X86_CLMUL)
+#	define BUILDING_CRC64_CLMUL
+#	include "crc_x86_clmul.h"
 #endif
 
 
