@@ -140,12 +140,6 @@ lzma_crc64(const uint8_t *buf, size_t size, uint64_t crc)
 	return crc64_func(buf, size, crc);
 
 #elif defined(CRC64_ARCH_OPTIMIZED)
-	// If arch-optimized version is used unconditionally without runtime
-	// CPU detection then omitting the generic version and its 8 KiB
-	// lookup table makes the library smaller.
-	//
-	// FIXME: Lookup table isn't currently omitted on 32-bit x86,
-	// see crc64_table.c.
 	return crc64_arch_optimized(buf, size, crc);
 
 #else

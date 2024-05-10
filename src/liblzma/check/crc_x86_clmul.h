@@ -19,10 +19,8 @@
 /// The version to build is selected by defining BUILDING_CRC32_CLMUL or
 /// BUILDING_CRC64_CLMUL before including this file.
 ///
-/// FIXME: Builds for 32-bit x86 use the assembly .S files by default
-/// unless configured with --disable-assembler. Even then the lookup table
-/// isn't omitted in crc64_table.c since it doesn't know that assembly
-/// code has been disabled.
+/// NOTE: Builds for 32-bit x86 use the assembly .S files by default
+/// unless configured with --disable-assembler.
 //
 //  Authors:    Ilya Kurdyukov
 //              Hans Jansen
